@@ -1,8 +1,9 @@
-from fastapi import FastAPI,Depends,HTTPException,status
+from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel
-from auth import hash_password,verify_password,create_access_token,get_create_user
-from database import fake_db,User
+from auth import hash_password, verify_password, create_access_token, get_create_user
+from database import fake_db, User
 from sms import send_sms, generate_code, save_code, can_send, verify_code
+from obs import get_upload_url, get_file_url, delete_file
 
 app = FastAPI(title="Auth Demo")
 
@@ -10,14 +11,14 @@ app = FastAPI(title="Auth Demo")
 # 请求体模型
 # 用户注册模型
 class Userregister(BaseModel):
-    username:str
-    password:str
+    username: str
+    password: str
 
 
 # 用户登录模型
 class UserLogin(BaseModel):
-    username:str
-    password:str
+    username: str
+    password: str
 
 
 # 发送验证码模型
@@ -31,12 +32,23 @@ class SMSLogin(BaseModel):
     code: str
 
 
+# 上传文件模型
+class UploadRequest(BaseModel):
+    filename: str
+
+
+# 上传文件url
+class UploadCallback(BaseModel):
+    object_key: str
+
+
+# --------JWT鉴权----------
 # 注册接口
 @app.post("/register")
-def register(user:Userregister):
+def register(user: Userregister):
     # 1.检查用户是否已存在
     if user.username in fake_db:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="用户已存在")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户已存在")
     # 2.密码加密
     hashed_pwd = hash_password(user.password)
     # 3.存入数据库
@@ -44,12 +56,12 @@ def register(user:Userregister):
         username=user.username,
         hashed_password=hashed_pwd
     )
-    return {"msg":"注册成功"}
+    return {"msg": "注册成功"}
 
 
 # 登录接口
 @app.post("/login")
-def login(user:UserLogin):
+def login(user: UserLogin):
     # 1.查询用户是否存在
     db_user = fake_db.get(user.username)
     if not db_user:
@@ -59,26 +71,27 @@ def login(user:UserLogin):
         )
 
     # 2.验证密码
-    if not verify_password(user.password,db_user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="用户名或密码错误")
+    if not verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名或密码错误")
 
     # 3.签发token
-    access_token = create_access_token(data={"sub":user.username})
-    return {"access_token":access_token,"token_type":"bearer"}
+    access_token = create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 # 需要鉴权的接口
 @app.get("/user/me")
-def read_current_user(current_user:User = Depends(get_create_user)):
+def read_current_user(current_user: User = Depends(get_create_user)):
     return {
-        "username":current_user.username,
-        "created_at":current_user.created_at.isoformat()
+        "username": current_user.username,
+        "created_at": current_user.created_at.isoformat()
     }
 
 
+# -------短信模块-------
 # 发送验证码
 @app.post("/sms/send")
-def sms_send(data:SMSSend):
+def sms_send(data: SMSSend):
     phone = data.phone
     if not can_send(phone):
         raise HTTPException(
@@ -86,30 +99,87 @@ def sms_send(data:SMSSend):
             detail="发送过于频繁，请60秒后再试"
         )
     code = generate_code()
-    save_code(phone,code)
-    send_sms(phone,code)
-    return {"msg":"验证码已发送","expire_in":300}
+    save_code(phone, code)
+    send_sms(phone, code)
+    return {"msg": "验证码已发送", "expire_in": 300}
 
 
 # 验证码登录
 @app.post("/sms/login")
-def sms_login(data:SMSLogin):
+def sms_login(data: SMSLogin):
     phone = data.phone
     code = data.code
-    if not verify_code(phone,code):
+    if not verify_code(phone, code):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="验证码错误或已过期"
         )
     if phone not in fake_db:
-        fake_db[phone] = User(username=phone,hashed_password="")
-    access_token = create_access_token(data={"sub":phone})
-    return {"access_token":access_token,"token_type":"bearer"}
+        fake_db[phone] = User(username=phone, hashed_password="")
+    access_token = create_access_token(data={"sub": phone})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+# ------------文件上传模块-------------
+@app.post("/upload/avatar")
+def request_upload(
+        request: UploadRequest,
+        current_user: User = Depends(get_create_user)
+):
+    """
+    请求上传头像，返回预签名URL
+    前端拿到URL后直接上传到OBS
+    """
+    upload_info = get_upload_url(current_user.username, request.filename)
+    return {
+        "msg": "获取上传地址成功",
+        "upload_url": upload_info["upload_url"],
+        "object_key": upload_info["object_key"],
+        "expires_in": upload_info["expires_in"]
+    }
+
+
+@app.post("/upload/callback")
+def upload_callback(data: UploadCallback, current_user: User = Depends(get_create_user)):
+    """
+    前端上传成功后回调，更新数据库里面的头像字段
+    如果有旧头像，用于后续删除
+    """
+    # 模拟：记录用户旧头像，用于后续删除
+    old_avatar = None
+    if hasattr(current_user, 'avatar_key'):
+        old_avatar = current_user.avatar_key
+
+    # 更新用户头像Key
+    current_user.avatar_key = data.object_key
+
+    # 异步删除旧头像（真实环境用celery或后台线程）
+    if old_avatar:
+        print(f"[模拟异步]删除旧头像：{old_avatar}")
+        delete_file(old_avatar)
+
+    avater_url = get_file_url(data.object_key)
+    return {
+        "msg": "头像更新成功",
+        "avatar_url": avater_url
+    }
+
+
+@app.get("/user/profile")
+def get_user_profile(current_user: User = Depends(get_create_user)):
+    """获取用户完整信息，包括头像"""
+    avatar_url = None
+    if hasattr(current_user, 'avatar_key') and current_user.avatar_key:
+        avatar_url = get_file_url(current_user.avatar_key)
+
+        return {
+            "username": current_user.username,
+            "created_at": current_user.created_at.isoformat(),
+            "avatar_url": avatar_url
+        }
 
 
 # 健康检查
 @app.get("/health")
 def health_chech():
-    return {"status":"ok"}
-
-
+    return {"status": "ok"}
