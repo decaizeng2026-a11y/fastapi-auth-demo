@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from database import fake_db, User
+from logger import get_request_id,logger
+
 
 """配置"""
 # 密匙，实际项目应从环境变量读取
@@ -59,6 +61,7 @@ def create_access_token(data: dict) -> str:
 """鉴权依赖"""
 # 从请求中提取并校验 Token，返回当前用户
 def get_create_user(token:str = Depends(oauth2_scheme)):
+    print("BEBUG request_id",get_request_id())
     # 1.解码token
     try:
         payload = jwt.decode(
@@ -68,23 +71,18 @@ def get_create_user(token:str = Depends(oauth2_scheme)):
         )
         username:str = payload.get("sub")
         if username is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token中缺少用户标识"
-            )
+            logger.bind(get_request_id=get_request_id()).warning("Token中缺少用户标识")
+            raise HTTPException(status_code=401)
     except jwt.PyJWTError:
         # 解码失败：过期，伪造，密匙不对
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token无效或已过期"
-        )
+        logger.bind(request_id=get_request_id()).warning("Token解码失败")
+        raise HTTPException(status_code=401)
 
     # 2.查数据库确认用户存在
     user = fake_db.get(username)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户不存在"
-        )
+        logger.bind(request_id=get_request_id()).warning(f"用户不存在：{username}")
+        raise HTTPException(status_code=401)
 
+    logger.bind(request_id=get_request_id()).info(f"用户鉴权成功：{username}")
     return user

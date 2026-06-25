@@ -1,6 +1,7 @@
 import random
 from datetime import timedelta
 import redis
+from logger import get_request_id,logger
 
 
 # 链接数据库
@@ -9,7 +10,7 @@ r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
 # 发送短信
 def send_sms(phone: str, code: str):
-    print(f"[mock sms] send code {code} to {phone}")
+    logger.bind(request_id=get_request_id()).info(f"发送短信到{phone}，验证码{code}")
     return True
 
 

@@ -4,8 +4,11 @@ from auth import hash_password, verify_password, create_access_token, get_create
 from database import fake_db, User
 from sms import send_sms, generate_code, save_code, can_send, verify_code
 from obs import get_upload_url, get_file_url, delete_file
+from middleware import RequestLogMiddleware
+
 
 app = FastAPI(title="Auth Demo")
+app.add_middleware(RequestLogMiddleware)
 
 
 # 请求体模型
@@ -122,15 +125,20 @@ def sms_login(data: SMSLogin):
 
 # ------------文件上传模块-------------
 @app.post("/upload/avatar")
+# 头像上传函数
 def request_upload(
+        # 接收文件名
         request: UploadRequest,
+        # 通过依赖注入获取用户信息
         current_user: User = Depends(get_create_user)
 ):
     """
     请求上传头像，返回预签名URL
     前端拿到URL后直接上传到OBS
     """
+    # 调用get_upload_url函数 将用户唯一信息和文件名传入进去生成一个唯一的文件名和预签名
     upload_info = get_upload_url(current_user.username, request.filename)
+    # 上传成功后返回预签名地址，文件名，预签名地址过期时间
     return {
         "msg": "获取上传地址成功",
         "upload_url": upload_info["upload_url"],
@@ -140,17 +148,21 @@ def request_upload(
 
 
 @app.post("/upload/callback")
+# 回调函数，传入前端返回的唯一文件名，通过依赖注入拿到用户信息
 def upload_callback(data: UploadCallback, current_user: User = Depends(get_create_user)):
     """
     前端上传成功后回调，更新数据库里面的头像字段
     如果有旧头像，用于后续删除
     """
     # 模拟：记录用户旧头像，用于后续删除
+    # 设置一个空值
     old_avatar = None
+    # 判断用户数据库里面有没有avatar_key字段，有就代表之前上传过头像
     if hasattr(current_user, 'avatar_key'):
+        # 如果有就将旧头像复赋值old_avatar
         old_avatar = current_user.avatar_key
 
-    # 更新用户头像Key
+    # 更新用户头像Key，将前端传回的key传给后端写入数据库
     current_user.avatar_key = data.object_key
 
     # 异步删除旧头像（真实环境用celery或后台线程）
@@ -158,6 +170,7 @@ def upload_callback(data: UploadCallback, current_user: User = Depends(get_creat
         print(f"[模拟异步]删除旧头像：{old_avatar}")
         delete_file(old_avatar)
 
+    # 调用get_file_url返回查看文件地址
     avater_url = get_file_url(data.object_key)
     return {
         "msg": "头像更新成功",
@@ -166,12 +179,17 @@ def upload_callback(data: UploadCallback, current_user: User = Depends(get_creat
 
 
 @app.get("/user/profile")
+# 获取用户信息接口，通过依赖注入获取用户信息
 def get_user_profile(current_user: User = Depends(get_create_user)):
     """获取用户完整信息，包括头像"""
+    # 头像url默认为空
     avatar_url = None
+    # 判断是否上传过头像以及头像里面是否有数据
     if hasattr(current_user, 'avatar_key') and current_user.avatar_key:
+        # 调用get_file_url函数生成查看url
         avatar_url = get_file_url(current_user.avatar_key)
 
+        # 返回用户信息
         return {
             "username": current_user.username,
             "created_at": current_user.created_at.isoformat(),

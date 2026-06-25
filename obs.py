@@ -43,7 +43,7 @@ obs_client = MockOBSClient(bucket_name="exam-system-bucket")
 def generate_unique_key(user_identifier: str, original_filename: str, folder: str = "avatars"):
     """
     生成唯一的文件存储路径
-    格式：avatars/用户表示 ——随机UUID.扩展名
+    格式：avatars/用户标识 ——随机UUID.扩展名
     """
     ext = original_filename.rsplit(".", 1)[-1] if "." in original_filename else "jpg"
     unique_name = f"{user_identifier}_{uuid.uuid4().hex[:8]}.{ext}"
