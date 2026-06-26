@@ -3,9 +3,10 @@ import jwt
 from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from database import fake_db, User
-from logger import get_request_id,logger
-
+from database import get_db
+from crud import get_user_by_username, get_user_by_phone
+from logger import get_request_id, logger
+from sqlalchemy.orm import Session
 
 """配置"""
 # 密匙，实际项目应从环境变量读取
@@ -60,8 +61,13 @@ def create_access_token(data: dict) -> str:
 
 """鉴权依赖"""
 # 从请求中提取并校验 Token，返回当前用户
-def get_create_user(token:str = Depends(oauth2_scheme)):
-    print("BEBUG request_id",get_request_id())
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """从JWT中解析用户，然后查数据验证"""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="无法验证凭证",
+        headers={"www_Authenticate": "Bearer"}
+    )
     # 1.解码token
     try:
         payload = jwt.decode(
@@ -69,20 +75,20 @@ def get_create_user(token:str = Depends(oauth2_scheme)):
             SECRET_KEY,
             algorithms=[ALGORITHM]
         )
-        username:str = payload.get("sub")
-        if username is None:
+        username_or_phone: str = payload.get("sub")
+        if username_or_phone is None:
             logger.bind(get_request_id=get_request_id()).warning("Token中缺少用户标识")
-            raise HTTPException(status_code=401)
+            raise credentials_exception
     except jwt.PyJWTError:
         # 解码失败：过期，伪造，密匙不对
         logger.bind(request_id=get_request_id()).warning("Token解码失败")
-        raise HTTPException(status_code=401)
+        raise credentials_exception
 
-    # 2.查数据库确认用户存在
-    user = fake_db.get(username)
-    if user is None:
-        logger.bind(request_id=get_request_id()).warning(f"用户不存在：{username}")
-        raise HTTPException(status_code=401)
+    # 2.尝试用用户名查，不行就用手机号查
+    user = get_user_by_username(db, username_or_phone)
+    if not user:
+        logger.bind(request_id=get_request_id()).warning(f"用户不存在：{username_or_phone}")
+        raise credentials_exception
 
-    logger.bind(request_id=get_request_id()).info(f"用户鉴权成功：{username}")
+    logger.bind(request_id=get_request_id()).info(f"用户鉴权成功：{user.username}")
     return user
