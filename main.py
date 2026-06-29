@@ -3,11 +3,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from auth import hash_password, verify_password, create_access_token, get_current_user
 from database import get_db
-from crud import create_user,get_user_by_username,get_user_by_phone,update_user_avatar
+from crud import create_user, get_user_by_username, get_user_by_phone, update_user_avatar
 from sms import send_sms, generate_code, save_code, can_send, verify_code
 from obs import get_upload_url, get_file_url, delete_file
 from middleware import RequestLogMiddleware
-from logger import logger,get_request_id
+from logger import logger, get_request_id
+from crud import create_order
+from tasks import open_blind_box
+from celery_app import celery_app
 
 
 app = FastAPI(title="Auth Demo")
@@ -51,17 +54,17 @@ class UploadCallback(BaseModel):
 # --------JWT鉴权----------
 # 注册接口
 @app.post("/register")
-def register(user: Userregister,db:Session = Depends(get_db)):
+def register(user: Userregister, db: Session = Depends(get_db)):
     # 1.检查用户是否已存在
-    if get_user_by_username(db,user.username):
+    if get_user_by_username(db, user.username):
         logger.bind(get_request_id=get_request_id()).warning(f"注册失败：用户名{user.username}已存在")
-        raise HTTPException(status_code=400,detail="用户已存在")
+        raise HTTPException(status_code=400, detail="用户已存在")
     # 2.密码加密
     hashed_pwd = hash_password(user.password)
     # 3.存入数据库
-    db_user = create_user(db,user.username,hashed_pwd)
+    db_user = create_user(db, user.username, hashed_pwd)
     logger.bind(request_id=get_request_id()).info(f"用户注册成功：{user.username},ID={db_user.id}")
-    return {"msg": "注册成功","usser_id":db_user.id}
+    return {"msg": "注册成功", "usser_id": db_user.id}
 
 
 # ==================== 登录 ====================
@@ -150,9 +153,43 @@ def get_user_profile(current_user=Depends(get_current_user)):
     }
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+@app.post("/blindbox/open")
+def blindbox_open(
+        current_user=Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    """
+       用户点击开箱：
+       1. 先在数据库创建订单（status=pending）
+       2. 把订单ID发给 Celery 异步执行
+       """
+    # 创建订单
+    order = create_order(db, current_user.id)
+
+    # 发送异步任务
+    task = open_blind_box.delay(order_id=order.id, user_id=current_user.id)
+
+    logger.bind(request_id=get_request_id()).info(f"开箱任务已发送: order_id={order.id}, task_id={task.id}")
+
+    return {
+        "msg": "开箱任务已提交，正在处理中....",
+        "order_id": order.id,
+        "task_id": task.id
+    }
+
+
+@app.get("/blindbox/result/{task_id}")
+def blindbox_result(task_id: str):
+    task_result = celery_app.AsyncResult(task_id)
+
+    if task_result.state == "PENDING":
+        return {"status": "处理中...", "task_id": task_id}
+    elif task_result.state == "SUCCESS":
+        return {"status": "完成", "result": task_result.result}
+    elif task_result.state == "FAILURE":
+        return {"status": "失败", "error": str(task_result.info)}
+    else:
+        return {"status": task_result.state, "task_id": task_id}
 
 
 # 健康检查

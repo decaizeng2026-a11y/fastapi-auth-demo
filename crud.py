@@ -1,7 +1,7 @@
 from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
-from database import User, ExamRecord, BlindBoxItem, OpenRecord
+from database import User, ExamRecord, BlindBoxItem, OpenRecord,Order
 
 
 # -------------用户--------------
@@ -80,3 +80,29 @@ def create_open_record(db:Session,user_id:int,item_id:int):
     db.commit()
     db.refresh(record)
     return record
+
+
+# ==================== 订单相关 ====================
+def create_order(db: Session, user_id: int) -> Order:
+    """创建一条待处理的订单"""
+    order = Order(user_id=user_id, status="pending")
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def get_order_by_id(db: Session, order_id: int) -> Optional[Order]:
+    """根据订单ID查订单"""
+    stmt = select(Order).where(Order.id == order_id)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def update_order_status(db: Session, order_id: int, status: str) -> Optional[Order]:
+    """更新订单状态"""
+    order = db.execute(select(Order).where(Order.id == order_id)).scalar_one_or_none()
+    if order:
+        order.status = status
+        db.commit()
+        db.refresh(order)
+    return order

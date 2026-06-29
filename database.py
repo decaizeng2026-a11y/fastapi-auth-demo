@@ -58,6 +58,19 @@ class OpenRecord(Base):
     open_time:Mapped[datetime] = mapped_column(DateTime,default=datetime.utcnow)
 
 
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/processing/done/failed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<Order(id={self.id}, status={self.status})>"
+
+
 # =========创建所有表========
 Base.metadata.create_all(bind=engine)
 
