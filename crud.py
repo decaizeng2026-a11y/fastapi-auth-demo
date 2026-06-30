@@ -2,6 +2,7 @@ from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from database import User, ExamRecord, BlindBoxItem, OpenRecord,Order
+from database import HydrologyRecord
 
 
 # -------------用户--------------
@@ -106,3 +107,19 @@ def update_order_status(db: Session, order_id: int, status: str) -> Optional[Ord
         db.commit()
         db.refresh(order)
     return order
+
+
+# ================水文数据操作函数================
+def create_hydrology_record(db:Session,water_level:float,flow_speed:float):
+    """创建一条水文数据记录"""
+    record = HydrologyRecord(water_level=water_level,flow_speed=flow_speed)
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def get_recent_hydrology_records(db,limit:int=10):
+    """获取最近的水文记录"""
+    stmt = select(HydrologyRecord).order_by(HydrologyRecord.recorded_at.desc()).limit(limit)
+    return db.execute(stmt).scalars().all()

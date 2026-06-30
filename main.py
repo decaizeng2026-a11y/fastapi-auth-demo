@@ -11,6 +11,8 @@ from logger import logger, get_request_id
 from crud import create_order
 from tasks import open_blind_box
 from celery_app import celery_app
+from crud import get_recent_hydrology_records
+import mqtt_client
 
 
 app = FastAPI(title="Auth Demo")
@@ -190,6 +192,23 @@ def blindbox_result(task_id: str):
         return {"status": "失败", "error": str(task_result.info)}
     else:
         return {"status": task_result.state, "task_id": task_id}
+
+
+# ---------- 水文数据模块 ----------
+@app.get("/hydrology/latest")
+def get_latest_hydrology(db:Session = Depends(get_db)):
+    """获取最近10条水文数据（模拟前端展示用）"""
+    records = get_recent_hydrology_records(db,limit=10)
+    return [
+        {
+            "id":r.id,
+            "water_level":r.water_level,
+            "flow_speed":r.flow_speed,
+            "recorded_at":r.recorded_at.isoformat()
+        }
+        for r in records
+    ]
+
 
 
 # 健康检查

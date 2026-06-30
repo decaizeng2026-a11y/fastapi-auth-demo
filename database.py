@@ -71,6 +71,23 @@ class Order(Base):
         return f"<Order(id={self.id}, status={self.status})>"
 
 
+
+# 水文数据表
+class HydrologyRecord(Base):
+    __tablename__ = "hydrology_records"
+
+    id:Mapped[int] = mapped_column(Integer,primary_key=True)
+    water_level:Mapped[float] = mapped_column(Float,nullable=False,comment="水位")
+    flow_speed:Mapped[float] = mapped_column(Float,nullable=False,comment="流速")
+    recorded_at:Mapped[datetime] = mapped_column(DateTime,default=datetime.utcnow,comment="采集时间")
+
+    def __repr__(self):
+        return f"<HydrologyRecord(id={self.id}, water_level={self.water_level})>"
+
+
+
+
+
 # =========创建所有表========
 Base.metadata.create_all(bind=engine)
 
