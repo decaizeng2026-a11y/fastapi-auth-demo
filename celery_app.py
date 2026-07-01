@@ -7,8 +7,8 @@ from celery import Celery
 # backend:结果储存柜，也用Redis
 celery_app = Celery(
     "tasks",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0"
+    broker="redis://redis_cache:6379/0",
+    backend="redis://redis_cache:6379/0"
 )
 
 celery_app.conf.update(

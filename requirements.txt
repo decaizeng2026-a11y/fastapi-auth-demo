@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pyjwt
+bcrypt
+python-multipart
+httpx
+pytest
+pytest-asyncio
+redis
+loguru
+paho-mqtt
+celery
+sqlalchemy
+pymysql

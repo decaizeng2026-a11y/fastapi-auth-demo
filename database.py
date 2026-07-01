@@ -3,10 +3,18 @@ from sqlalchemy import create_engine,String,Integer,Float,DateTime,TEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, sessionmaker, Session, mapped_column
 from datetime import datetime
 from typing import Optional
+import os
 
 
 # 数据库链接
-SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:123456@localhost:3306/exam_system"
+# SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:123456@localhost:3306/exam_system"
+# 数据库链接(docker-compose版本)
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "mysql+pymysql://root:123456@localhost:3306/exam_system"
+)
+
+
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL,echo=False)
 SessionLocal = sessionmaker(autocommit=False,autoflush=False,bind=engine)
